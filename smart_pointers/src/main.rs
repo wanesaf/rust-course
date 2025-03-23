@@ -1,5 +1,7 @@
 use crate::List::{Cons, Nil};
 use crate::List_using_Rc::{Cons as OtherCons, Nil as OtherNil};
+use crate::List_using_Rc_And_RefCell::{Cons as LastCons , Nil as LastNil}; 
+use std::cell::RefCell;
 use std::{ops::Deref, rc::Rc};
 enum List {
     Cons(i32, Box<List>),
@@ -12,6 +14,12 @@ enum List {
 #[derive(Debug)]
 enum List_using_Rc {
     Cons(i32, Rc<List_using_Rc>),
+    Nil,
+}
+
+#[derive(Debug)]
+enum List_using_Rc_And_RefCell {
+    Cons (Rc<RefCell<i32>> , Rc<List_using_Rc_And_RefCell>),
     Nil,
 }
 struct myBox<T>(T);
@@ -40,6 +48,43 @@ impl Drop for CustomPointer {
         println!("Dropping custom pointer with data : {}", self.data);
     }
 }
+
+pub trait Messenger {
+    fn send (&self , msg :&str) {}
+}
+
+pub struct LimitTracker<'a, T :Messenger> {
+    messenger : &'a T , 
+    value :  usize ,
+    max : usize ,  
+}
+
+impl <'a,T> LimitTracker<'a , T>
+where 
+    T : Messenger,
+    {
+        pub fn new (messenger : &'a T , max : usize ) -> LimitTracker<'a,T> {
+            LimitTracker { 
+                 messenger ,  
+                  value: 0 ,  
+                   max , 
+        }
+    }
+    pub fn set_value (&mut self , value : usize) {
+     self.value = value ; 
+     let percentage_of_max = self.value as f64 / self.max as f64; 
+        if percentage_of_max >= 1.0 {
+            self.messenger.send("You are over your quota !");
+        }
+        else if percentage_of_max >= 0.9  {
+            self.messenger.send("Urgent warning : You have used up over 90% of ur quota");
+        }else if percentage_of_max >= 0.75 {
+            self.messenger.send("Urgent warning : You have used over 75% of ur quota ");
+        }
+    }
+}
+
+
 fn main() {
     let b = Box::new(5); // data (5) is stored on the heap , the box (pointer) is stored in the stack
     println!("{}", b);
@@ -112,8 +157,75 @@ fn main() {
           println!("number of refs to a is {}",Rc::strong_count(&a));
        //the data wont be cleaned unless refs = 0
     }
+
+    //Note : u can mutate data when u have immutable refs to this data , using  unsafe ; this is normally not accepted by the compiler
+    //RefCell<T> : single ownership over the data   
+    // it's useful when u sure ur following the borrwoing rules but the compiler reject it because it cant understand it 
+    //There are situations when a value must mutate itself in its methods but it appears immutable in other code . RefCell is here to acheive this (interior mutability)
+    
+    //RefCell<T> combined with Rc<T> to get multiple
+    {
+        let value = Rc::new(RefCell::new(5)); // the 'node : not really ' that contain 5 will have multiple owners , and they can borrow_mut it
+
+        let a = Rc::new(LastCons(Rc::clone(&value), Rc::new(LastNil)));
+    
+        let b = LastCons(Rc::new(RefCell::new(3)), Rc::clone(&a));
+        let c = LastCons(Rc::new(RefCell::new(4)), Rc::clone(&a));
+    
+        *value.borrow_mut() += 10;
+        *value.borrow_mut() += 10;
+        //It's possible because of Rc (immutable refs) combined with RefCell so tborrowi mutably wekt mat7ab (ostoriya)
+        
+        
+    
+        println!("a after = {a:?}");
+        println!("b after = {b:?}");
+        println!("c after = {c:?}");
+    }
 }
 
 fn hello_world(x: &str) {
     println!("hello {}", x);
+}
+
+
+#[cfg(test)] 
+mod tests {
+    use super::*;
+    use std::cell::RefCell; 
+    struct MockMessenger {
+        sent_messages : RefCell<Vec<String>>//create a refcell to strore messages , refcell is immutable , but we can get a mutable refs (borrow mut) after , this is impossible without refcell , because u must declare then Vec<String> as mutable and self also 
+    }
+
+    impl MockMessenger {
+        fn new () -> MockMessenger {
+            MockMessenger { sent_messages: RefCell::new(vec![]) }
+        }
+    }
+
+    impl Messenger for MockMessenger {
+        fn send (&self , message : &str ) {
+            self.sent_messages.borrow_mut().push(String::from(message));
+            {
+            let mut one_borrow = self.sent_messages.borrow_mut();
+            let mut two_borrow = self.sent_messages.borrow_mut();
+
+            one_borrow.push(String::from(message));
+            two_borrow.push(String::from(message));
+
+            //there is no compilation error , but there is a runtime error because we get two mutable refs of the same data at the same scope , this is how refcell check errors !
+            //there is cost for this benifits however , small penality at runtime for checking borrows 
+            }
+        }
+    } 
+
+    #[test]
+    fn it_sends_over_75 () {
+        let mock_messenger = MockMessenger::new() ; 
+        let mut limit_tracker = LimitTracker::new(&mock_messenger,100); 
+        limit_tracker.set_value(80);
+        assert_eq!(mock_messenger.sent_messages.borrow().len() , 1) ;
+        //borrow => return Ref<T> , borrow_mut => return RefMut<T> , they impl deref trait , so u can treat them like regular refs (using *) 
+    } 
+
 }
