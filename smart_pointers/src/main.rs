@@ -1,6 +1,7 @@
 use crate::List::{Cons, Nil};
-use crate::List_using_Rc::{Cons as OtherCons, Nil as OtherNil};
-use crate::List_using_Rc_And_RefCell::{Cons as LastCons , Nil as LastNil}; 
+use crate::ListUsingRc::{Cons as OtherCons, Nil as OtherNil};
+use crate::List2::{Cons as anotherCons , Nil as anotherNil};
+use crate::ListUsingRcAndRefCell::{Cons as LastCons , Nil as LastNil}; 
 use std::cell::RefCell;
 use std::{ops::Deref, rc::Rc};
 enum List {
@@ -12,15 +13,30 @@ enum List {
   //so it will choose the allocateSize another one for the ConsVariant .... -> infinity
 
 #[derive(Debug)]
-enum List_using_Rc {
-    Cons(i32, Rc<List_using_Rc>),
+enum ListUsingRc {
+    Cons(i32, Rc<ListUsingRc>),
     Nil,
 }
 
 #[derive(Debug)]
-enum List_using_Rc_And_RefCell {
-    Cons (Rc<RefCell<i32>> , Rc<List_using_Rc_And_RefCell>),
+enum ListUsingRcAndRefCell {
+    Cons (Rc<RefCell<i32>> , Rc<ListUsingRcAndRefCell>),
     Nil,
+}
+
+#[derive(Debug)]
+enum List2 {
+    Cons(i32,RefCell<Rc<List2>>),
+    Nil 
+}
+
+impl List2 {
+    fn tail (&self) -> Option<&RefCell<Rc<List2>>> {
+        match self {
+            anotherCons(_,item)=> Some(item),
+            anotherNil => None,
+        }
+    }
 }
 struct myBox<T>(T);
 
@@ -143,7 +159,7 @@ fn main() {
     //its objective is to enable multiple ownership like a value can be owned by various vars
     //Rc<T> keeps track of the number of references to a value to determine whether the value is still in use , if refs=0 => the value can be cleaned up
     {
-        let a: Rc<List_using_Rc> = Rc::new(OtherCons(5,Rc::new(OtherCons(10, Rc::new(OtherNil)))));
+        let a: Rc<ListUsingRc> = Rc::new(OtherCons(5,Rc::new(OtherCons(10, Rc::new(OtherNil)))));
          println!("number of refs to a is {}", Rc::strong_count(&a));
         let b = Rc::new(Rc::clone(&a));
          println!("number of refs to a is {}", Rc::strong_count(&a));
@@ -181,6 +197,28 @@ fn main() {
         println!("a after = {a:?}");
         println!("b after = {b:?}");
         println!("c after = {c:?}");
+    }
+
+    //memory leaks 
+    {
+        println!("-----------------------------------------------"); // lahbil wallah 
+      let a = Rc::new(anotherCons(5,RefCell::new(Rc::new(anotherNil))));
+      println!("a initial rc count = {}",Rc::strong_count(&a)) ; //a->5 , refs_count = 1 
+      println!("a next item = {:?}",a.tail()); //RefCell(Rc(Nil))
+
+      let b  = Rc::new(anotherCons(10,RefCell::new(Rc::clone(&a))));// b-> 10 -> 5 -> Nil ; refs_count (a) = 2 
+
+      println!("a rc count after b creation = {}",Rc::strong_count(&a)); //2
+      println!("b initial rc count = {}",Rc::strong_count(&b)); //1
+      println!("b nex item = {:?}",b.tail()); //5->Nil
+
+      if let Some(link) = a.tail() { //a.tail() = RefCell{Rc(Nil) != None}
+        *link.borrow_mut() = Rc::clone(&b); // new list : a -> 5 -> 10 -> 5 -> 10 avec b -> 10
+      }
+      println!("b rc count after changing a = {}", Rc::strong_count(&b));//2
+      println!("a rc count after changing a = {}", Rc::strong_count(&a));//2
+
+      println!("a next item = {:?}", a.tail());//overflow : a->b->a->b.....
     }
 }
 
