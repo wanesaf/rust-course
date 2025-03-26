@@ -2,7 +2,8 @@ use crate::List::{Cons, Nil};
 use crate::ListUsingRc::{Cons as OtherCons, Nil as OtherNil};
 use crate::List2::{Cons as anotherCons , Nil as anotherNil};
 use crate::ListUsingRcAndRefCell::{Cons as LastCons , Nil as LastNil}; 
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
+use std::rc::Weak;
 use std::{ops::Deref, rc::Rc};
 enum List {
     Cons(i32, Box<List>),
@@ -38,6 +39,15 @@ impl List2 {
         }
     }
 }
+
+#[derive(Debug)]
+struct Node {
+    value : i32, 
+    parent : RefCell<Weak<Node>>, //we dont use Rc<T> because this will cause a ref cycle ,
+    children : RefCell<Vec<Rc<Node>>>, 
+}//Node own its children , the ownership is shared to access each Node in the tree directly
+//we want to modify which nodes are children of another node, so we use RefCell
+
 struct myBox<T>(T);
 
 impl<T> myBox<T> {
@@ -218,7 +228,29 @@ fn main() {
       println!("b rc count after changing a = {}", Rc::strong_count(&b));//2
       println!("a rc count after changing a = {}", Rc::strong_count(&a));//2
 
-      println!("a next item = {:?}", a.tail());//overflow : a->b->a->b.....
+     // println!("a next item = {:?}", a.tail());//overflow : a->b->a->b.....
+    }
+
+    //Weak 
+    {
+        let leaf = Rc::new(Node{
+           value : 3 , 
+           parent : RefCell::new(Weak::new()),
+           children : RefCell::new(vec![])
+        });//if we use parent with type Rc , because in branch.children we have leaf so branch share ownership with leaf(points to it), and leaf.parent is branch but branch.children points to leaf ...... ref cycle  
+        // if we drop a child node , the parent should exist , but if we drop the parent , the children must be dropped : we dont want to children to own the parent => Weak
+        let branch = Rc::new(Node{
+            value : 5,
+            parent : RefCell::new(Weak::new()),
+            children : RefCell::new(vec![Rc::clone(&leaf)]),
+        });
+
+        println!("leaf parent : {:?}",leaf.parent.borrow().upgrade());//when we try to get its parent using upgrade we get none
+
+        *leaf.parent.borrow_mut() = Rc::downgrade(&branch);//down grade is used to create a weak ref to branch so we got the parent 
+
+        println!("leaf parent : {:?}",leaf.parent.borrow().upgrade());//print the parent 
+
     }
 }
 
