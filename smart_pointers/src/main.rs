@@ -249,7 +249,7 @@ fn main() {
 
         *leaf.parent.borrow_mut() = Rc::downgrade(&branch);//down grade is used to create a weak ref to branch so we got the parent 
 
-        println!("leaf parent : {:?}",leaf.parent.borrow().upgrade());//print the parent 
+        println!("leaf parent : {:?}",leaf.parent.borrow().upgrade());//print the parent ù
 
     }
 }
